@@ -1,0 +1,11 @@
+.env # Prevent committing secrets
+uploads/
+venv/
+.env # Prevent committing secrets
+uploads/
+venv/
+.env
+uploads/
+venv/
+__pycache__/
+.DS_Store

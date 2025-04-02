@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spotify Data Analyzer</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.colors.min.css">
+    <script src='https://cdn.plot.ly/plotly-latest.min.js'></script>
+    <!-- ... (head content, link to pico, script for plotly) ... -->
+    <style>
+        /* --- Adjustments for tighter layout --- */
+        html {
+            /* Adjust overall scale if desired */
+            /* font-size: 95%; */
+        }
+        body {
+            padding-top: 1rem; padding-bottom: 1rem;
+            font-size: 0.95rem; /* Base text size */
+            /* Improve default line-height slightly for smaller fonts */
+            line-height: 1.5;
+        }
+        main.container {
+            max-width: 960px; padding: 0 1rem;
+        }
+        header {
+            margin-bottom: 1.5rem; text-align: center; /* Center header content */
+        }
+        /* --- Logo Styles --- */
+        #appLogo {
+            display: block; /* Make it a block element */
+            max-width: 150px; /* Adjust size as needed */
+            margin: 0 auto 0.75rem auto; /* Center horizontally, add bottom margin */
+            /* Add other styles like max-height if needed */
+        }
+        /* ------------------ */
+        header h1 {
+            font-size: 1.8rem; margin-bottom: 0.25rem;
+        }
+            header p {
+                font-size: 0.9rem; margin-bottom: 0;
+            }
+
+        article {
+            /* --- Reduced margin between articles --- */
+            margin-bottom: 0.75rem; /* Further decreased space between sections */
+            /* --------------------------------------- */
+            padding: 1rem;
+            border-radius: var(--border-radius);
+        }
+        article hgroup {
+                margin-bottom: 0.8rem;
+        }
+        article h2 {
+            font-size: 1.3rem; margin-bottom: 0.2rem;
+        }
+            article p {
+            font-size: 0.9rem; margin-bottom: 0.8rem;
+        }
+
+        /* Form element spacing */
+        label {
+            margin-bottom: 0.2rem; font-size: 0.9rem;
+        }
+        input[type="file"],
+        textarea,
+        button {
+            margin-bottom: 0.8rem; font-size: 0.9rem;
+        }
+            textarea {
+            min-height: 80px;
+            }
+
+        #plot {
+            margin-top: 1rem; min-height: 350px;
+            background-color: var(--card-background-color);
+            border-radius: var(--border-radius);
+            padding: 0.5rem; border: 1px solid var(--card-border-color);
+            display: none;
+        }
+        #dataOutput {
+            margin-top: 1rem; display: none;
+        }
+            #dataOutput p, #dataOutput pre, #dataOutput table {
+                font-size: 0.85rem; margin-bottom: 0.5rem;
+            }
+            #dataOutput pre {
+                padding: 0.8rem;
+            }
+            #dataOutput table {
+            margin-top: 0.5rem;
+            }
+            #dataOutput th, #dataOutput td {
+                padding: 0.4rem 0.5rem;
+            }
+
+        /* Status messages */
+        .status-message {
+            display: inline-block; margin-left: 0.8rem;
+            border-radius: var(--border-radius);
+            font-size: 0.8em; vertical-align: middle; /* Align better with button */
+        }
+        /* --- Ensure Success is Green --- */
+        .status-success {
+            color: var(--pico-color-green-300); /* Darker green text for contrast */
+            font-weight: bold; /* Make success messages stand out a bit */
+        }
+        /* ----------------------------- */
+        .status-error {
+            color: var(--pico-color-red-800);
+            border: 1px solid var(--pico-color-red-300); font-weight: bold;
+        }
+        #errorMessage {
+            color: var(--pico-color-red-700); font-weight: bold;
+            margin-bottom: 0.8rem; font-size: 0.9rem;
+        }
+
+        /* --- Reset Button Layout --- */
+            #resetUploadContainer {
+            text-align: right;
+            /* Removed negative margin-top */
+            margin-bottom: 1rem; /* Space below button, before hgroup */
+            /* Container respects article padding now */
+            }
+            #resetUploadButton {
+                font-size: 0.8em;
+                padding: 0.4rem 0.7rem;
+                vertical-align: middle; /* Align if needed */
+            }
+            /* ------------------------ */
+
+        /* --- Original Visibility/Layout Styles --- */
+        #querySection, #results { display: none; }
+        #uploadArticle { display: block; }
+            table td, table th { white-space: normal !important; word-break: break-word; }
+            pre { white-space: pre-wrap; word-wrap: break-word; background-color: var(--muted-border-color); border-radius: var(--border-radius); }
+
+    </style>
+</head>
+<body>
+    <main class="container">
+        <header>
+             <!-- Logo added here -->
+            <img src="/static/img/logo.png" alt="App Logo" id="appLogo">
+            <!-- End Logo -->
+
+            <h1>Jim's Spotify Data Analyzer</h1>
+            <p>Upload your Spotify stream history zip file and then ask questions about it</p>
+        </header>
+
+        <!-- Section 1: Upload -->
+        <article id="uploadArticle">
+             <hgroup>
+                <h2>Upload Your Data</h2>
+                <p>Select the .zip file you downloaded from Spotify.</p>
+            </hgroup>
+            <form id="uploadForm" enctype="multipart/form-data">
+                <input type="file" id="spotify_data" name="spotify_data" accept=".zip" required>
+                <button type="submit" id="uploadButton">Upload File</button>
+                <span id="uploadStatus" class="status-message"></span>
+            </form>
+        </article>
+
+        <!-- Section 2: Query -->
+        <article id="querySection">
+             <div id="resetUploadContainer">
+                 <button type="button" id="resetUploadButton" class="secondary outline">Upload New File</button>
+             </div>
+             <hgroup>
+                <h2>Ask a Question</h2>
+                <p>What do you want to know about your listening habits?</p>
+            </hgroup>
+            <form id="queryForm">
+                <textarea id="query" name="query" rows="3" placeholder="e.g., Top 10 artists last month? Listening time per month?"></textarea> <!-- Reduced default rows -->
+                <button type="submit" id="analyzeButton">Analyze</button>
+                <span id="analyzeStatus" class="status-message"></span>
+            </form>
+        </article>
+
+        <!-- Section 3: Results -->
+        <article id="results">
+            <h2>Results</h2>
+            <div id="errorMessage"></div>
+            <div id="plot"></div> <!-- Plotly graph will go here -->
+            <div id="dataOutput"></div> <!-- Text/Table data will go here -->
+        </article>
+
+    </main> <!-- /container -->
+
+    <script>
+        // Get references to ALL relevant elements
+        const uploadArticle = document.getElementById('uploadArticle');
+        const querySection = document.getElementById('querySection');
+        const resultsDiv = document.getElementById('results');
+        const appLogo = document.getElementById('appLogo'); // <-- Add reference to logo
+        // ... (rest of the element references)
+        const uploadForm = document.getElementById('uploadForm');
+        const queryForm = document.getElementById('queryForm');
+        const uploadStatus = document.getElementById('uploadStatus');
+        const analyzeStatus = document.getElementById('analyzeStatus');
+        const plotDiv = document.getElementById('plot');
+        const dataOutputDiv = document.getElementById('dataOutput');
+        const errorMessageDiv = document.getElementById('errorMessage');
+        const uploadButton = document.getElementById('uploadButton');
+        const analyzeButton = document.getElementById('analyzeButton');
+        const resetUploadButton = document.getElementById('resetUploadButton');
+
+        // --- Upload Logic ---
+        uploadForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            setLoadingState(uploadButton, uploadStatus, 'Uploading...', true);
+            clearResults();
+            const formData = new FormData(uploadForm);
+            try {
+                const response = await fetch('/upload', { method: 'POST', body: formData });
+                const result = await response.json();
+                if (response.ok) {
+                    showStatus(uploadStatus, `File uploaded. Ready to analyze.`, 'success');
+                    uploadArticle.style.display = 'none';
+                    querySection.style.display = 'block';
+                    resultsDiv.style.display = 'none';
+                    appLogo.style.display = 'none'; // <-- Hide logo on success
+                } else {
+                    showStatus(uploadStatus, `Upload failed: ${result.error || 'Unknown error'}`, 'error');
+                    uploadArticle.style.display = 'block';
+                    querySection.style.display = 'none';
+                    resultsDiv.style.display = 'none';
+                    appLogo.style.display = 'block'; // <-- Ensure logo is visible on failure
+                }
+            } catch (error) {
+                showStatus(uploadStatus, `Upload error: ${error}`, 'error');
+                 uploadArticle.style.display = 'block';
+                querySection.style.display = 'none';
+                resultsDiv.style.display = 'none';
+                 appLogo.style.display = 'block'; // <-- Ensure logo is visible on error
+            } finally {
+                setLoadingState(uploadButton, uploadStatus, '', false);
+            }
+        });
+
+        // --- Query Logic (no changes needed here) ---
+        queryForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            setLoadingState(analyzeButton, analyzeStatus, 'Analyzing...', true);
+            clearResults();
+            const formData = new FormData(queryForm);
+            try {
+                const response = await fetch('/ask', { method: 'POST', body: formData });
+                const result = await response.json();
+                 resultsDiv.style.display = 'block';
+                if (response.ok) {
+                    let contentDisplayed = false;
+                    if (result.graph) {
+                        try {
+                             const graphData = JSON.parse(result.graph);
+                             plotDiv.style.display = 'block';
+                             Plotly.newPlot('plot', graphData.data, graphData.layout || {}, {responsive: true});
+                             contentDisplayed = true;
+                        } catch (e) { console.error("Plotly error:", e); errorMessageDiv.textContent = "Error displaying graph."; plotDiv.style.display = 'none'; }
+                    }
+                    if (result.data) {
+                         dataOutputDiv.style.display = 'block'; displayData(result.data, result.data_type); contentDisplayed = true;
+                    }
+                    if (!result.graph && !result.data && result.message) {
+                        dataOutputDiv.style.display = 'block'; dataOutputDiv.innerHTML = `<p>${escapeHtml(result.message)}</p>`; contentDisplayed = true;
+                    }
+                     if (!contentDisplayed) {
+                         dataOutputDiv.style.display = 'block'; dataOutputDiv.innerHTML = `<p>Analysis complete, but no specific data or graph was generated.</p>`;
+                     }
+                    showStatus(analyzeStatus, 'Analysis complete. Check data below.', 'success');
+                } else {
+                    errorMessageDiv.textContent = `Analysis failed: ${result.error || 'Unknown error'}`;
+                    showStatus(analyzeStatus, `Analysis failed.`, 'error');
+                }
+            } catch (error) {
+                 resultsDiv.style.display = 'block'; errorMessageDiv.textContent = `Analysis request error: ${error}`; showStatus(analyzeStatus, `Request error.`, 'error');
+            } finally {
+                setLoadingState(analyzeButton, analyzeStatus, '', false);
+            }
+        });
+
+        // --- Reset Upload Listener ---
+        resetUploadButton.addEventListener('click', () => {
+            uploadArticle.style.display = 'block';
+            querySection.style.display = 'none';
+            resultsDiv.style.display = 'none';
+            appLogo.style.display = 'block'; // <-- Show logo again on reset
+            showStatus(uploadStatus, '', 'info');
+            showStatus(analyzeStatus, '', 'info');
+            uploadForm.reset();
+            clearResults();
+            fetch('/cleanup', { method: 'POST' })
+                .then(response => response.json()).then(data => console.log("Cleanup:", data))
+                .catch(error => console.error("Cleanup failed:", error));
+        });
+
+        // --- Helper Functions (no changes needed here) ---
+        function setLoadingState(button, statusElement, message, isLoading) { button.setAttribute('aria-busy', isLoading ? 'true' : 'false'); button.disabled = isLoading; if (isLoading) { statusElement.textContent = message; statusElement.className = 'status-message'; } }
+        function showStatus(element, message, type = 'info') { element.textContent = message; if (type === 'success') { element.className = 'status-message status-success'; } else if (type === 'error') { element.className = 'status-message status-error'; } else { element.className = 'status-message'; } }
+        function clearResults() { errorMessageDiv.textContent = ''; plotDiv.innerHTML = ''; plotDiv.style.display = 'none'; dataOutputDiv.innerHTML = ''; dataOutputDiv.style.display = 'none'; }
+        function displayData(data, dataType) {
+             let html = '';
+             if (dataType === 'table' && Array.isArray(data) && data.length > 0) {
+                 html = '<table><thead><tr>'; Object.keys(data[0]).forEach(key => html += `<th>${escapeHtml(key)}</th>`); html += '</tr></thead><tbody>';
+                 data.forEach(row => { html += '<tr>'; Object.values(row).forEach(value => html += `<td>${escapeHtml(String(value))}</td>`); html += '</tr>'; }); html += '</tbody></table>';
+             } else if (dataType === 'list/dict' || dataType === 'text' || (dataType === 'table' && data.length === 0)) {
+                 if (dataType === 'table' && data.length === 0) { html = '<p>The analysis returned an empty table.</p>'; }
+                 else { html = `<pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre>`; }
+             } else { html = `<pre>${escapeHtml(String(data))}</pre>`; }
+             dataOutputDiv.innerHTML = html;
+         }
+        function escapeHtml(unsafe) { if (typeof unsafe !== 'string') { if (unsafe === null || typeof unsafe === 'undefined') return ''; unsafe = String(unsafe); } return unsafe.replace(/&/g, "&").replace(/</g, "<").replace(/>/g, ">").replace(/"/g, "\"").replace(/'/g, "'"); }
+
+        // --- Initial Visibility ---
+        document.addEventListener('DOMContentLoaded', (event) => {
+             uploadArticle.style.display = 'block';
+             querySection.style.display = 'none';
+             resultsDiv.style.display = 'none';
+             appLogo.style.display = 'block'; // <-- Ensure logo is visible on load
+        });
+
+    </script>
+</body>
+</html>
