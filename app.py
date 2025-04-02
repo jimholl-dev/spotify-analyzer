@@ -1,5 +1,4 @@
 import os
-# import uuid # No longer needed for directory names
 import json
 import pandas as pd
 import plotly
@@ -11,19 +10,13 @@ import zipfile
 import glob
 import shutil
 import traceback
-import tempfile # <-- Import tempfile
+import tempfile
 
 load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
-# UPLOAD_FOLDER is no longer needed for extracted data management
-# We might still want it if we decide to *save* the zip temporarily first,
-# but we can also extract directly from the stream. Let's remove it for now.
-# app.config['UPLOAD_FOLDER'] = 'uploads'
-# os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
-# --- load_spotify_data (No changes needed) ---
 # This function already accepts a directory path, regardless of where it is.
 def load_spotify_data(directory_path):
     """

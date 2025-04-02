@@ -1,11 +1,19 @@
-.env # Prevent committing secrets
-uploads/
+# Python virtual environment
 venv/
-.env # Prevent committing secrets
-uploads/
-venv/
-.env
-uploads/
-venv/
+
+# Python cache files
+*.pyc
 __pycache__/
-.DS_Store
+
+# Secrets - DO NOT COMMIT
+.env
+
+# Temporary directories/files potentially created within the project
+temp_zips/  # Keep this ignored for leftover zip storage
+uploads/    # Keep this ignored for safety/legacy, even if not used by tempfile code
+
+# User uploaded data files - DO NOT COMMIT
+*.zip
+
+# OS-specific files
+*.DS_Store
