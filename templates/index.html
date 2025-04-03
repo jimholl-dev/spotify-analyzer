@@ -306,17 +306,19 @@
 
                 // Display other data (text, table)
                 if (result.data) {
-                    dataOutputDiv.style.display = 'block';
-                    displayData(result.data, result.data_type);
-                    contentDisplayed = true;
-                }
+                     dataOutputDiv.style.display = 'block';
+                     // *** Pass limit_info to displayData ***
+                     displayData(result.data, result.data_type, result.limit_info);
+                     contentDisplayed = true;
+                 }
 
                 // Display backend message if no graph/data
                 if (!result.graph && !result.data && result.message) {
-                    dataOutputDiv.style.display = 'block';
-                    dataOutputDiv.innerHTML = `<p>${escapeHtml(result.message)}</p>`;
-                    contentDisplayed = true;
-                }
+                     dataOutputDiv.style.display = 'block';
+                     // *** Use displayData for consistency, even for simple messages ***
+                     displayData(result.message, 'text', result.limit_info); // Pass limit_info here too
+                     contentDisplayed = true;
+                 }
 
                 // Fallback message if analysis seemed successful but nothing was generated
                  if (!contentDisplayed && !errorMessageDiv.textContent) { // Check if error message was already set
@@ -367,15 +369,41 @@
         function setLoadingState(button, statusElement, message, isLoading) { button.setAttribute('aria-busy', isLoading ? 'true' : 'false'); button.disabled = isLoading; if (isLoading) { statusElement.textContent = message; statusElement.className = 'status-message'; } }
         function showStatus(element, message, type = 'info') { element.textContent = message; if (type === 'success') { element.className = 'status-message status-success'; } else if (type === 'error') { element.className = 'status-message status-error'; } else { element.className = 'status-message'; } }
         function clearResults() { errorMessageDiv.textContent = ''; plotDiv.innerHTML = ''; plotDiv.style.display = 'none'; dataOutputDiv.innerHTML = ''; dataOutputDiv.style.display = 'none'; }
-        function displayData(data, dataType) {
+        function displayData(data, dataType, limitInfo = null) {
              let html = '';
+             // Add the limit info message at the top if it exists
+             if (limitInfo) {
+                // Make it stand out slightly
+                html += `<p><em>${escapeHtml(limitInfo)}</em></p>`;
+             }
+
              if (dataType === 'table' && Array.isArray(data) && data.length > 0) {
-                 html = '<table><thead><tr>'; Object.keys(data[0]).forEach(key => html += `<th>${escapeHtml(key)}</th>`); html += '</tr></thead><tbody>';
-                 data.forEach(row => { html += '<tr>'; Object.values(row).forEach(value => html += `<td>${escapeHtml(String(value))}</td>`); html += '</tr>'; }); html += '</tbody></table>';
-             } else if (dataType === 'list/dict' || dataType === 'text' || (dataType === 'table' && data.length === 0)) {
-                 if (dataType === 'table' && data.length === 0) { html = '<p>The analysis returned an empty table.</p>'; }
-                 else { html = `<pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre>`; }
-             } else { html = `<pre>${escapeHtml(String(data))}</pre>`; }
+                 html += '<table><thead><tr>'; // Append to existing html
+                 Object.keys(data[0]).forEach(key => html += `<th>${escapeHtml(key)}</th>`);
+                 html += '</tr></thead><tbody>';
+                 data.forEach(row => {
+                     html += '<tr>';
+                     // Ensure values are properly escaped, handle null/undefined
+                     Object.values(row).forEach(value => {
+                         const displayValue = (value === null || typeof value === 'undefined') ? '' : String(value);
+                         html += `<td>${escapeHtml(displayValue)}</td>`;
+                     });
+                     html += '</tr>';
+                 });
+                 html += '</tbody></table>';
+             } else if (dataType === 'list/dict' || dataType === 'text' || (dataType === 'table' && (!data || data.length === 0))) {
+                  if (dataType === 'table' && (!data || data.length === 0)) {
+                       html += '<p>The analysis returned an empty table.</p>'; // Append
+                  } else if (dataType === 'text') {
+                       // Display simple text directly in a paragraph for better formatting than <pre>
+                       html += `<p>${escapeHtml(String(data))}</p>`; // Append
+                  }
+                  else { // list/dict formatted as JSON
+                       html += `<pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre>`; // Append
+                  }
+             } else { // Fallback for unknown types
+                  html += `<pre>${escapeHtml(String(data))}</pre>`; // Append
+             }
              dataOutputDiv.innerHTML = html;
          }
         function escapeHtml(unsafe) { if (typeof unsafe !== 'string') { if (unsafe === null || typeof unsafe === 'undefined') return ''; unsafe = String(unsafe); } return unsafe.replace(/&/g, "&").replace(/</g, "<").replace(/>/g, ">").replace(/"/g, "\"").replace(/'/g, "'"); }

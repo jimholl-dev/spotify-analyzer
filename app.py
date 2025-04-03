@@ -218,8 +218,7 @@ and information about a pandas DataFrame named `df` containing this combined dat
 
 Your task is to generate *only* Python code that uses the `df` DataFrame and the Plotly Express library (`px`)
 to answer the user's query. The code should generate a Plotly figure object assigned to a variable named `fig`.
-If possible, you should prefer to output a Plotly figure, or some visual representation of the data.
-However, if the query is best answered with text or a table, generate Python code that prints the answer or creates a
+If the query is best answered with text or a table, generate Python code that prints the answer or creates a
 string/list/dict assigned to a variable named `result_data`. Do not include any explanations, just the code.
 
 DataFrame Information (columns might vary based on user's specific export):
@@ -233,13 +232,20 @@ First 5 rows (df.head()):
 User Query: "{user_query}"
 
 Key Columns likely present and preprocessed:
-- 'timestamp': datetime object (UTC) indicating when the track finished playing.
+- 'timestamp': datetime object (UTC) indicating when the track finished playing. **IMPORTANT: This column has dtype datetime64[ns, UTC]. It is timezone-aware.**
 - 'msPlayed': numeric milliseconds played.
 - 'minutesPlayed': numeric minutes played (derived from msPlayed).
 - 'trackName': string name of the track.
 - 'artistName': string name of the artist.
 - 'albumName': string name of the album.
 - Other original columns from the Spotify export might also exist.
+
+**Instructions for Time-Based Filtering:**
+- The 'timestamp' column is timezone-aware (UTC).
+- When filtering by date/time (e.g., "last year", "since January", "between date A and B"):
+    1. Create comparison dates using `pd.Timestamp`, **making sure to include `tz='UTC'`**. Example: `start_date = pd.Timestamp('2023-01-01', tz='UTC')` or `one_year_ago = pd.Timestamp.now(tz='UTC') - pd.Timedelta(days=365)`.
+    2. Use the `.loc` indexer for filtering the DataFrame by timestamp. Example: `filtered_df = df.loc[df['timestamp'] >= one_year_ago]` or `filtered_df = df.loc[(df['timestamp'] >= start_date) & (df['timestamp'] < end_date)]`.
+- **Avoid direct comparison like `df[df['timestamp'] >= non_pandas_datetime_object]` if possible, prefer `.loc` with timezone-aware `pd.Timestamp`.**
 
 Constraints:
 - Use the DataFrame `df`.
@@ -295,11 +301,6 @@ def execute_analysis_code(code, df):
         print(f"Error executing generated code: {e}")
         error_message = f"Error during analysis execution: {e}"
        
-    
-    print("Figure data now:")
-
-    print(fig.data)
-
     return fig, result_data, error_message
 
 # --- Flask Routes ---
@@ -379,149 +380,133 @@ def upload_file():
 
 @app.route('/ask', methods=['POST'])
 def ask_question():
-    """Handles user question, triggers LLM and analysis using data in the temp directory."""
-    print("--- /ask route entered ---") # Add entry log
+    print("--- /ask route entered ---")
+    MAX_RESULTS_LIMIT = 30 # Define the limit for list/dataframe results
 
-    # <<<--- Start Top-Level Try Block ---<<<
     try:
+        # --- Setup and Initial Checks --- (Same as before)
         query = request.form.get('query')
         extracted_dir_path = session.get('extracted_dir_path')
-        print(f"Received query: '{query}'")
-        print(f"Using temp directory path from session: {extracted_dir_path}")
-
-        if not query:
-            print("Error: No query provided.")
-            return jsonify({"error": "No query provided."}), 400
-
-        if not extracted_dir_path:
-            print("Error: Temporary directory path not found in session.")
-            return jsonify({"error": "Session expired or data not uploaded. Please upload your ZIP file again."}), 400
+        # ... (checks for query, extracted_dir_path, isdir) ...
+        if not query: return jsonify({"error": "No query provided."}), 400
+        if not extracted_dir_path: return jsonify({"error": "Session expired or data not uploaded. Please upload your ZIP file again."}), 400
         if not os.path.isdir(extracted_dir_path):
-            print(f"Error: Path from session exists but is not a directory: {extracted_dir_path}")
             session.pop('extracted_dir_path', None)
             return jsonify({"error": "Server error: Invalid data path found. Please upload again."}), 500
+        print(f"Processing query: '{query}' using data in: {extracted_dir_path}")
 
-        print(f"Processing query using data in temporary directory: {extracted_dir_path}")
-
-        # 1. Load Data
+        # --- Load Data --- (Same as before)
         print("Attempting to load Spotify data...")
         df = load_spotify_data(extracted_dir_path)
         if df is None or df.empty:
-            print("Failed to load data or DataFrame is empty from temp dir.")
-            return jsonify({"error": "Failed to load or process the Spotify data from the temporary location."}), 500
-        print(f"Data loaded successfully. Shape: {df.shape}")
+             return jsonify({"error": "Failed to load or process the Spotify data."}), 500
+        print(f"Data loaded. Shape: {df.shape}")
 
-        # 2. Get DataFrame Info
+        # --- Get DataFrame Info --- (Same as before)
         print("Preparing DataFrame info for LLM...")
         df_head_str = df.head().to_string()
         try: df_dtypes_str = df.dtypes.to_string()
-        except Exception as e_dtypes: # Catch specific error here if needed
-             print(f"Warning: Could not convert dtypes to string: {e_dtypes}")
-             df_dtypes_str = "\n".join([f"{col}: {dtype}" for col, dtype in df.dtypes.items()]) # Fallback
+        except Exception as e_dtypes: df_dtypes_str = "\n".join([f"{col}: {dtype}" for col, dtype in df.dtypes.items()])
         df_columns_str = ', '.join(df.columns)
         print("DataFrame Info prepared.")
 
-        # 3. Get Analysis Code from LLM
+        # --- Get Analysis Code --- (Same as before)
         print("Requesting analysis code from LLM...")
         generated_code = get_llm_analysis_code(query, df_head_str, df_columns_str, df_dtypes_str)
         if not generated_code:
-            print("Failed to get code from LLM.")
             return jsonify({"error": "Failed to get analysis instructions from LLM."}), 500
         print(f"--- Received LLM Code ---\n{generated_code}\n-------------------------")
 
-        # 4. Execute Analysis Code
+        # --- Execute Analysis Code --- (Same as before)
         print("Executing analysis code...")
         fig, result_data, error_message = execute_analysis_code(generated_code, df)
+        print(f"Execution finished. Error message: {error_message}, Fig generated: {fig is not None}, Result data generated: {result_data is not None}")
 
-        # Handle error from execution first
+        # --- Handle Execution Error --- (Same as before)
         if error_message:
             print(f"Error reported from execute_analysis_code: {error_message}")
             error_payload = json.dumps({"error": f"Analysis code execution failed: {error_message}"})
             return app.response_class(response=error_payload, status=500, mimetype='application/json')
 
-        # 5. Prepare Response
-        print("Preparing response data...")
+        # --- Prepare Response Data ---
+        print("Preparing response data dictionary...")
         response_data = {}
-        graph_conversion_error = None # Track errors specifically from graph conversion
+        graph_conversion_error = None
+        limit_applied_info = None # To store the truncation message
 
-        if fig:
+        # --- Apply Result Limiting ---
+        if result_data is not None:
+            original_length = None
+            limit_applied = False
+            try:
+                if isinstance(result_data, list):
+                    original_length = len(result_data)
+                    if original_length > MAX_RESULTS_LIMIT:
+                        result_data = result_data[:MAX_RESULTS_LIMIT]
+                        limit_applied = True
+                elif isinstance(result_data, (pd.Series, pd.DataFrame)):
+                    original_length = len(result_data)
+                    if original_length > MAX_RESULTS_LIMIT:
+                        result_data = result_data.head(MAX_RESULTS_LIMIT)
+                        limit_applied = True
+
+                if limit_applied:
+                    limit_applied_info = f"(Results limited to first {len(result_data)} of {original_length})"
+                    response_data['limit_info'] = limit_applied_info # Add info for frontend
+                    print(limit_applied_info)
+
+            except Exception as e_limit:
+                print(f"Warning: Could not apply result limiting: {e_limit}")
+
+        # --- Process Figure (if exists) ---
+        if fig is not None:
             print("Processing generated figure using plotly.io.to_json...")
             try:
-                # Generate the JSON string directly using Plotly's IO function
-                # This ensures arrays are converted to lists, not bdata
-
-                print("Figure daata AGAIN now:")
-
-                print(fig.data)
-
-                graph_json_string = plotly.io.to_json(fig, pretty=False) # Get compact JSON string
-                graph_json = json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)
-                graph_json_dict = json.loads(graph_json_string) # Parse string into dict
-
-                # <<<--- ADD THIS DETAILED LOGGING ---<<<
-                print(f"--- graph_json_dict type: {type(graph_json_dict)} ---")
-                # Try printing a specific problematic part directly from the dict
-                try:
-                     # Adjust index [0] if needed based on actual figure structure
-                     print(f"--- graph_json_dict['data'][0]['y'] (type: {type(graph_json_dict['data'][0]['y'])}) ---")
-                     print(graph_json_dict['data'][0]['y'])
-                     if isinstance(graph_json_dict['data'][0].get('text'), dict):
-                         print(f"--- graph_json_dict['data'][0]['text'] (is dict) ---")
-                         print(graph_json_dict['data'][0]['text'])
-
-                except (KeyError, IndexError, TypeError) as e_inspect:
-                     print(f"Could not inspect specific data keys in graph_json_dict: {e_inspect}")
-                # Print a larger snippet of the dict for broader context
-                print(f"--- graph_json_dict (sample) ---\n{str(graph_json_dict)[:1000]}\n--------------------------")
-                # >>>------------------------------------->>>
-
-                response_data['graph'] = graph_json
+                graph_json_string = plotly.io.to_json(fig)
+                response_data['graph'] = graph_json_string # Store JSON string
                 print("Figure successfully converted to JSON string.")
-
             except Exception as e_fig_json:
-                print(f"Error converting Plotly figure to JSON string using plotly.io.to_json(): {e_fig_json}")
+                print(f"Error converting Plotly figure to JSON string: {e_fig_json}")
                 traceback.print_exc()
-                graph_conversion_error = f"Failed to serialize graph for display: {e_fig_json}"
+                graph_conversion_error = f"Failed to serialize graph: {e_fig_json}"
                 response_data['error_details'] = graph_conversion_error
+        else:
+             print("No figure object generated.")
 
-        # Process result_data (This part remains the same)
+        # --- Process Result Data (if exists) ---
         if result_data is not None:
-            print("Processing result_data...")
+            print(f"Processing result_data (type: {type(result_data).__name__})...")
             try:
-                # (Your existing logic for processing result_data into response_data['data'] is fine)
                 if isinstance(result_data, (pd.DataFrame, pd.Series)):
                     response_data['data'] = result_data.to_dict(orient='records') if isinstance(result_data, pd.DataFrame) else result_data.to_dict()
                     response_data['data_type'] = 'table' if isinstance(result_data, pd.DataFrame) else 'list/dict'
                 elif isinstance(result_data, (list, dict, str, int, float)):
                     response_data['data'] = result_data
-                    response_data['data_type'] = 'text'
-                else:
+                    # Determine type more specifically for frontend
+                    if isinstance(result_data, list): response_data['data_type'] = 'list/dict' # Treat list as potentially structured
+                    elif isinstance(result_data, dict): response_data['data_type'] = 'list/dict' # Treat dict as potentially structured
+                    else: response_data['data_type'] = 'text' # Treat primitive types as text
+                else: # Fallback for other types
                     response_data['data'] = str(result_data)
-                    response_data['data_type'] = 'text' # Fallback
-                print(f"result_data processed. Type: {response_data.get('data_type')}")
+                    response_data['data_type'] = 'text'
+                print(f"result_data processed. Assigned data_type: {response_data.get('data_type')}")
             except Exception as e_result_data:
                  print(f"Error processing result_data: {e_result_data}")
                  traceback.print_exc()
-                 response_data['error_details'] = response_data.get('error_details', '') + f" | Failed to process result data: {e_result_data}"
+                 error_details = response_data.get('error_details', '')
+                 response_data['error_details'] = error_details + f" | Failed to process result data: {e_result_data}"
+        else:
+             print("No result_data generated.")
 
 
-        # --- Final Serialization (This part remains largely the same) ---
-        # We now serialize a dictionary where 'graph' is a pre-rendered JSON string,
-        # and 'data' might contain pandas-native types before conversion.
-        # Using PlotlyJSONEncoder is still safest for potentially complex types in 'data'
-        # before they were converted by to_dict(), or if other complex types exist.
-
-        # Final checks before sending response (keep these)
+        # --- Final Checks and Serialization ---
+        # Check if anything was produced at all (graph, data, or even an error detail)
         if not response_data:
-             # (Error handling for empty response or only errors remains the same)
              print("Analysis complete, but no graph, data, or error generated.")
-             if graph_conversion_error:
-                 error_payload = json.dumps({"error": graph_conversion_error})
-                 return app.response_class(response=error_payload, status=500, mimetype='application/json')
-             else:
-                 message_payload = json.dumps({"message": "Analysis complete, but no specific plot or data was generated."})
-                 return app.response_class(response=message_payload, status=200, mimetype='application/json')
+             message_payload = json.dumps({"message": "Analysis complete, but no specific plot or data was generated."})
+             return app.response_class(response=message_payload, status=200, mimetype='application/json')
 
+        # Handle case where only an error detail was produced (e.g., graph serialization failed)
         if list(response_data.keys()) == ['error_details']:
              print("Response only contains error details, returning as main error.")
              error_payload = json.dumps({"error": response_data['error_details']})
@@ -529,29 +514,36 @@ def ask_question():
 
         # Serialize the final response_data dictionary
         try:
-            print("Serializing final response data (graph is pre-serialized dictionary)...")
-            # PlotlyJSONEncoder will handle any special types remaining in response_data['data']
-            # and will correctly embed the graph_json_dict as a dictionary value for 'graph'.
-            json_payload = json.dumps(response_data, cls=plotly.utils.PlotlyJSONEncoder)
-            print("Serialization successful. Final payload snippet:")
-            print(json_payload[:500] + "..." if len(json_payload) > 500 else json_payload) # Print snippet
+            print(f"Attempting final serialization of response_data keys: {list(response_data.keys())}")
+            # Log a sample of the data structure before serialization for debugging
+            log_sample = {}
+            for k, v in response_data.items():
+                if k == 'graph': log_sample[k] = f"String starting with: {v[:50]}..." if isinstance(v, str) else type(v).__name__
+                elif k == 'data' and isinstance(v, (list, dict)) and len(v) > 3: log_sample[k] = f"{type(v).__name__} of length {len(v)}, first 3: {str(v[:3] if isinstance(v, list) else list(v.items())[:3])}"
+                else: log_sample[k] = v
+            print(f"Pre-serialization sample: {log_sample}")
 
-            # Manually create the Flask response object
-            return app.response_class(
-                response=json_payload,
-                status=200,
-                mimetype='application/json'
-            )
+            # Use PlotlyJSONEncoder for robustness with potential complex types in 'data'
+            json_payload = json.dumps(response_data, cls=plotly.utils.PlotlyJSONEncoder)
+            print("Final serialization successful.")
+
+            return app.response_class(response=json_payload, status=200, mimetype='application/json')
+
         except Exception as e_json:
-            # (Error handling for final serialization remains the same)
             print(f"!!! Error during final JSON serialization: {e_json} !!!")
-            traceback.print_exc()
-            error_payload = json.dumps({"error": f"Failed to serialize the response data ({type(e_json).__name__}). Check server logs."})
+            traceback.print_exc() # Log the exact serialization error
+            error_payload = json.dumps({"error": f"Failed to serialize the final response ({type(e_json).__name__})."})
             return app.response_class(response=error_payload, status=500, mimetype='application/json')
 
+    # --- Top-Level Exception Handler --- (Same as before, ensure it returns JSON)
     except Exception as e:
         print("!!! TOP-LEVEL UNHANDLED EXCEPTION in /ask route !!!")
-        error_payload = json.dumps({"error": f"An unexpected server error occurred ({type(e).__name__}). Please check server logs."})
+        error_type_name = type(e).__name__
+        error_args = getattr(e, 'args', 'No arguments')
+        print(f"Error Type: {error_type_name}")
+        print(f"Error Args: {error_args}")
+        traceback.print_exc()
+        error_payload = json.dumps({"error": f"An unexpected server error occurred ({error_type_name}). Check logs."})
         return app.response_class(response=error_payload, status=500, mimetype='application/json')
 
 # --- Helper for cleanup (Modified) ---
