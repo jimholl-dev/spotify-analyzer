@@ -238,7 +238,7 @@
             }
         });
 
-        // --- Query Logic (no changes needed here) ---
+        // --- Query Logic ---
         queryForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             setLoadingState(analyzeButton, analyzeStatus, 'Analyzing...', true);
@@ -246,34 +246,103 @@
             const formData = new FormData(queryForm);
             try {
                 const response = await fetch('/ask', { method: 'POST', body: formData });
-                const result = await response.json();
-                 resultsDiv.style.display = 'block';
-                if (response.ok) {
-                    let contentDisplayed = false;
-                    if (result.graph) {
-                        try {
-                             const graphData = JSON.parse(result.graph);
-                             plotDiv.style.display = 'block';
-                             Plotly.newPlot('plot', graphData.data, graphData.layout || {}, {responsive: true});
-                             contentDisplayed = true;
-                        } catch (e) { console.error("Plotly error:", e); errorMessageDiv.textContent = "Error displaying graph."; plotDiv.style.display = 'none'; }
-                    }
-                    if (result.data) {
-                         dataOutputDiv.style.display = 'block'; displayData(result.data, result.data_type); contentDisplayed = true;
-                    }
-                    if (!result.graph && !result.data && result.message) {
-                        dataOutputDiv.style.display = 'block'; dataOutputDiv.innerHTML = `<p>${escapeHtml(result.message)}</p>`; contentDisplayed = true;
-                    }
-                     if (!contentDisplayed) {
-                         dataOutputDiv.style.display = 'block'; dataOutputDiv.innerHTML = `<p>Analysis complete, but no specific data or graph was generated.</p>`;
+
+                // Check if response is ok AND content type is JSON before parsing
+                const contentType = response.headers.get("content-type");
+                if (!response.ok) {
+                    let errorMsg = `Analysis failed with status: ${response.status}`;
+                    // Try to parse error JSON if available
+                    if (contentType && contentType.indexOf("application/json") !== -1) {
+                         try {
+                             const errorResult = await response.json();
+                             errorMsg = `Analysis failed: ${errorResult.error || 'Unknown server error'}`;
+                         } catch (parseError) {
+                             errorMsg = `Analysis failed: ${response.statusText} (Could not parse error response)`;
+                         }
+                     } else {
+                         // Handle non-JSON error responses (like potential HTML tracebacks if debug is on and error handling failed)
+                         const textError = await response.text(); // Read response as text
+                         errorMsg = `Analysis failed: Server returned non-JSON response. Check server logs. (Status: ${response.status})`;
+                         console.error("Non-JSON error response from server:", textError.substring(0, 500)); // Log snippet
                      }
-                    showStatus(analyzeStatus, 'Analysis complete. Check data below.', 'success');
-                } else {
-                    errorMessageDiv.textContent = `Analysis failed: ${result.error || 'Unknown error'}`;
-                    showStatus(analyzeStatus, `Analysis failed.`, 'error');
+                     resultsDiv.style.display = 'block'; // Show results area for error
+                     errorMessageDiv.textContent = errorMsg;
+                     showStatus(analyzeStatus, `Analysis failed.`, 'error');
+                     return; // Stop processing
                 }
+
+                // If response is OK, assume it's JSON based on our backend logic
+                const result = await response.json(); // Parse the JSON response
+
+                // --- Proceed with displaying results ---
+                resultsDiv.style.display = 'block';
+                let contentDisplayed = false;
+
+                // Check and Plot Graph
+                // *** Check if result.graph exists AND is a non-empty string ***
+                if (result.graph && typeof result.graph === 'string' && result.graph.trim() !== '') {
+                    try {
+                        plotDiv.style.display = 'block';
+                        // *** FIX: Parse the JSON string received from the backend ***
+                        const graphData = JSON.parse(result.graph);
+                        // Check if parsing resulted in a valid structure
+                        if (graphData && graphData.data) {
+                            Plotly.newPlot('plot', graphData.data, graphData.layout || {}, { responsive: true });
+                            contentDisplayed = true;
+                            console.log("Plotly graph rendered successfully.");
+                        } else {
+                             throw new Error("Parsed graph JSON is missing 'data' property.");
+                        }
+                    } catch (plotError) {
+                        console.error("Error parsing or plotting graph JSON:", plotError);
+                        console.error("Received graph string (start):", result.graph.substring(0, 500)); // Log the string that failed parsing
+                        errorMessageDiv.textContent = "Error processing or displaying graph data. Check console.";
+                        plotDiv.style.display = 'none';
+                    }
+                } else if (result.graph) {
+                     // Log if result.graph exists but isn't a string or is empty
+                     console.warn("Received 'graph' data from backend, but it's not a valid JSON string:", result.graph);
+                }
+
+                // Display other data (text, table)
+                if (result.data) {
+                    dataOutputDiv.style.display = 'block';
+                    displayData(result.data, result.data_type);
+                    contentDisplayed = true;
+                }
+
+                // Display backend message if no graph/data
+                if (!result.graph && !result.data && result.message) {
+                    dataOutputDiv.style.display = 'block';
+                    dataOutputDiv.innerHTML = `<p>${escapeHtml(result.message)}</p>`;
+                    contentDisplayed = true;
+                }
+
+                // Fallback message if analysis seemed successful but nothing was generated
+                 if (!contentDisplayed && !errorMessageDiv.textContent) { // Check if error message was already set
+                    dataOutputDiv.style.display = 'block';
+                    dataOutputDiv.innerHTML = `<p>Analysis complete, but no specific data or graph was generated.</p>`;
+                 }
+
+                // Clear error message if we successfully displayed content
+                if (contentDisplayed && !errorMessageDiv.textContent.includes("rendering Plotly graph")) {
+                    errorMessageDiv.textContent = ''; // Clear previous errors if new content is shown
+                }
+
+                // Set final status only if no major error occurred during processing
+                if (!errorMessageDiv.textContent) { // Check if we set an error message
+                    showStatus(analyzeStatus, 'Analysis complete.', 'success');
+                } else {
+                     showStatus(analyzeStatus, 'Analysis complete with issues.', 'error'); // Indicate partial success/failure
+                }
+
+
             } catch (error) {
-                 resultsDiv.style.display = 'block'; errorMessageDiv.textContent = `Analysis request error: ${error}`; showStatus(analyzeStatus, `Request error.`, 'error');
+                // Catch network errors or errors during response processing (like .json() failing)
+                console.error("Fetch or processing error:", error);
+                resultsDiv.style.display = 'block'; // Show results area for error
+                errorMessageDiv.textContent = `Analysis request error: ${error.message || error}`;
+                showStatus(analyzeStatus, `Request error.`, 'error');
             } finally {
                 setLoadingState(analyzeButton, analyzeStatus, '', false);
             }
